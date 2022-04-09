@@ -16,7 +16,10 @@ char * get_kotlin_class_name(char *filename) {
 	char *class_name = malloc(sizeof(char) * len); //don't need +1 as we will remove last dot
 	class_name[0] = toupper(filename[0]);
 	for(int i=1; i<len; i++) {
-		class_name[i] = filename[i];
+		if(filename[i] == '-')
+			class_name[i] = '_';
+		else
+			class_name[i] = filename[i];
 	}
 	class_name[len - 1] = 0;
 	class_name[len - 2] = 't';
