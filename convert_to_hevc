@@ -1,0 +1,86 @@
+#!/usr/bin/python
+import subprocess
+import os
+import argparse
+from pathlib import Path
+def file_size_is_fine(originalFileP):
+    size = originalFileP.stat().st_size
+    originalFile = str(originalFileP)
+    fp = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1', originalFile], capture_output=True, text=True)
+    fp.check_returncode()
+    duration = float(fp.stdout)
+    ratio = size / duration
+
+    b500mB = 500 * 1024 * 1024
+    b250mB = 250 * 1024 * 1024
+    sec30min = 30 * 60
+
+    fp = subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=height','-of','csv=s=x:p=0', originalFile],capture_output=True, text=True)
+    fp.check_returncode()
+    height = int(fp.stdout)
+    if height >= 720:
+        expectedRatio = b500mB / sec30min
+    else:
+        expectedRatio = b250mB / sec30min
+
+    return expectedRatio > ratio
+
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", help="input video file")
+    parser.add_argument("-o","--output-dir", help="output dir.", default="")
+    args = parser.parse_args()
+    originalFileP = Path(args.input.strip())
+    outputDirP = Path(args.output_dir.strip())
+    originalFile = str(originalFileP)
+    p=subprocess.run(["ffmpeg", "-i", originalFile], stderr=subprocess.PIPE, text=True)
+    mp4Name = outputDirP.joinpath(
+            Path(originalFileP.parent.joinpath(originalFileP.stem + "_hevc.mp4"))
+            )
+    mp4Name = str(mp4Name)
+    fpc=None
+    fp = subprocess.run(["file", "--mime-type", "--brief", originalFile],capture_output=True, text=True)
+    fp.check_returncode()
+    mime = fp.stdout
+
+    if "mp4" in mime and file_size_is_fine(originalFileP):
+        print("Size is fine. skipping", originalFile)
+        return
+
+    if "Video: hevc" in p.stderr:
+        fp = subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=height','-of','csv=s=x:p=0', originalFile],capture_output=True, text=True)
+        fp.check_returncode()
+        height = int(fp.stdout)
+        if "mp4" in mime:
+            if height <= 720:
+                return
+        else:
+            if height <= 720:
+                toRun = ["ffmpeg","-i",originalFile,"-codec","copy","-c:s", "mov_text", '-vtag', 'hvc1',"-y","-nostdin", mp4Name]
+                print(" ".join(toRun))
+                fpc = subprocess.run(toRun)
+
+        # subprocess.run(["ffmpeg","-i",sys.argv[1],"-codec","copy","-c:s", "mov_text","-y","-nostdin",mp4Name])
+    if fpc is None:
+        # fpc = subprocess.run(["ffmpeg","-i",sys.argv[1],"-vcodec","libx265","-c:s", "mov_text","-y","-nostdin", '-crf', '28', '-preset', 'slow', '-vf', "scale=-2:'min(720,ih)'",mp4Name])
+        # fpc = subprocess.run(["ffmpeg","-i",sys.argv[1],"-vcodec","libx265","-c:s", "mov_text", '-vtag', 'hvc1', "-y","-nostdin", '-crf', '25', '-vf', "scale=-2:'min(720,ih)'",mp4Name])
+
+        # fpc = subprocess.run(['ffmpeg','-y','-nostdin','-vsync','0','-hwaccel','cuda','-hwaccel_output_format','cuda','-i', sys.argv[1],'-c:a','copy','-c:v','hevc_nvenc', '-c:s', 'mov_text','-vtag','hvc1', '-b:v','0','-rc','constqp','-rc-lookahead','20','-vf',"scale_cuda=-2:min'(ih,720)'",'-qp','30','-preset','slow','-2pass','1', mp4Name])
+        toRun = ['ffmpeg','-y','-nostdin','-vsync','0','-hwaccel','cuda','-hwaccel_output_format','cuda','-i', originalFile,'-c:a','copy','-c:v','hevc_nvenc', '-c:s', 'mov_text','-vtag','hvc1', '-b:v','0','-rc','constqp','-vf',"scale_cuda=-2:min'(ih,720)'",'-qp','30','-preset','slow','-2pass','1', mp4Name]
+        print(" ".join(toRun))
+        fpc = subprocess.run(toRun)
+
+        # fpc = subprocess.run(["ffmpeg","-i",sys.argv[1],"-vcodec","libx265","-c:s", "mov_text", '-vtag', 'hvc1', "-y","-nostdin", '-crf', '25', '-vf', "scale=-2:'min(720,ih)'",mp4Name])
+    if fpc.returncode != 0:
+        print("let's try completely software enc")
+        toRun = ["ffmpeg","-i",originalFile,"-vcodec","libx265","-c:s", "mov_text","-y","-nostdin", '-crf', '28', '-vf', "scale=-2:'min(720,ih)'",'-vtag','hvc1',mp4Name]
+        print(" ".join(toRun))
+        fpc = subprocess.run(toRun)
+
+    if fpc.returncode == 0 and os.path.isfile(mp4Name) and (os.path.getsize(mp4Name) > 0):
+        os.remove(originalFile)
+        # pass
+
+main()
