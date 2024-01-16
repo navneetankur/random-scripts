@@ -115,11 +115,10 @@ int main(int argc, char **argv) {
 
 	//try running the program
 	char **jargs = malloc(sizeof(char *) * argc);
-	int i=0;
-	for(int j=1; j<argc; j++) { //argv[0] is rrun so ignore it.
-		jargs[i++] = argv[j];
+	for(int i=0,j=1; j<argc; i++,j++) { //argv[0] is rrun so ignore it.
+		jargs[i] = argv[j];
 	}
-	jargs[i] = NULL;
+	jargs[argc - 1] = NULL;
 	execvp(bin_file_path, jargs);
 
 	//shouldn't be reached.
